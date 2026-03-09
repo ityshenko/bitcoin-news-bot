@@ -97,23 +97,20 @@ class BitcoinBot:
         """Handle /start command"""
         user_id = event.sender_id
         username = event.sender.username
-        
+
         self.db.add_user(user_id, username)
-        
+
         await event.respond("🔄 Загружаю данные о Bitcoin...")
-        
+
         price_data = await self.analytics.get_btc_price()
         news_list = await self.news_parser.fetch_all_news(limit=3)
-        
+
         message = "👋 <b>Добро пожаловать в Bitcoin News Bot!</b>\n\n"
-        
+
         if price_data:
             price = price_data.get('price', 0)
-            change = price_data.get('change_24h', 0)
-            change_emoji = "🟢" if change >= 0 else "🔴"
-            message += f"💰 <b>Курс Bitcoin: ${price:,.2f}</b>\n"
-            message += f"{change_emoji} <b>24ч: {change:+.2f}%</b>\n\n"
-        
+            message += f"💰 <b>Курс на данную секунду: ${price:,.2f}</b>\n\n"
+
         if news_list:
             message += "📰 <b>Последние новости:</b>\n"
             for i, news in enumerate(news_list[:3], 1):
@@ -121,23 +118,19 @@ class BitcoinBot:
                 source = news.get('source', 'Неизвестно')
                 message += f"{i}. {title} <i>({source})</i>\n"
             message += "\n"
-        
+
         message += (
-            "<b>Доступные команды:</b>\n"
-            "📊 /analytics — Полная аналитика рынка\n"
-            "🔮 /forecast — Прогноз курса (час, день, месяц, год)\n"
-            "📰 /news — Свежие новости Bitcoin\n"
-            "📈 /stats — Статистика бота\n"
-            "❓ /help — Помощь\n\n"
-            "🔔 Вы подписаны на автоматические обновления!"
+            "🔔 <b>Вы подписаны на автоматические обновления!</b>\n"
+            "Каждый час будет приходить тебе новости курса биткоина.\n\n"
+            "<b>Ниже кнопки для Аналитики и Прогноза. Жми и увидешь.</b>"
         )
-        
+
         keyboard = [
             [Button.inline("📊 Аналитика", b"analytics")],
             [Button.inline("🔮 Прогноз", b"forecast")],
             [Button.inline("📰 Новости", b"news")]
         ]
-        
+
         await event.respond(message, parse_mode='html', buttons=keyboard)
         logger.info(f"Пользователь {user_id} запустил бота")
     
