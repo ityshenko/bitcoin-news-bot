@@ -1,0 +1,21 @@
+services:
+  - type: worker
+    name: bitcoin-news-bot
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python bot.py
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: API_ID
+        sync: false
+      - key: API_HASH
+        sync: false
+      - key: CRYPTOPANIC_API_KEY
+        sync: false
+      - key: ANALYTIC_TIME
+        sync: false
+      - key: NEWS_INTERVAL
+        sync: false
+region: frankfurt
+plan: free
