@@ -109,7 +109,10 @@ class BitcoinBot:
 
         if price_data:
             price = price_data.get('price', 0)
-            message += f"💰 <b>Курс на данную секунду: ${price:,.2f}</b>\n\n"
+            change = price_data.get('change_24h', 0)
+            change_emoji = "🟢" if change >= 0 else "🔴"
+            message += f"💰 <b>Курс Bitcoin: ${price:,.2f}</b>\n"
+            message += f"{change_emoji} <b>24ч: {change:+.2f}%</b>\n\n"
 
         if news_list:
             message += "📰 <b>Последние новости:</b>\n"
@@ -120,8 +123,7 @@ class BitcoinBot:
             message += "\n"
 
         message += (
-            "🔔 <b>Вы подписаны на автоматические обновления!</b>\n"
-            "Каждый час будет приходить тебе новости курса биткоина.\n\n"
+            "🔔 <b>Вы подписаны на автоматические обновления!</b> Каждый час будет приходить тебе новости курса биткоина.\n\n"
             "<b>Ниже кнопки для Аналитики и Прогноза. Жми и увидешь.</b>"
         )
 
@@ -323,91 +325,131 @@ class BitcoinBot:
     async def callback_handler(self, event):
         """Handle inline button callbacks"""
         data = event.data.decode('utf-8')
-        
+
         if data == 'analytics':
             await event.answer("📊 Загружаю аналитику...")
-            
-            price_data = await self.analytics.get_btc_price()
-            market_data = await self.analytics.get_market_data()
-            forecast = await self.analytics.get_forecast()
-            chart_data = await self.analytics.get_btc_data(days=14)
-            
-            message = self.analytics.format_analytics_message(price_data, market_data, forecast)
-            
-            # ASCII график
-            if chart_data:
-                prices = chart_data.get('prices', [])
-                current = price_data.get('price', 0) if price_data else 0
-                chart = create_price_chart(prices, current)
-                if chart:
-                    message += f"\n\n<b>График цены (14 дней):</b>\n<code>{chart}</code>"
-            
-            await event.respond(message, parse_mode='html')
-            
-            if price_data:
-                today = datetime.now().date().isoformat()
-                sentiment = self.analytics.calculate_sentiment(price_data, market_data)
-                self.db.add_analytics(today, price_data.get('price', 0), price_data.get('change_24h', 0), sentiment)
-            
-            await event.answer("✅")
-            
+
+            try:
+                price_data = await self.analytics.get_btc_price()
+                logger.info(f"Analytics callback - price_data: {price_data}")
+                
+                if not price_data:
+                    await event.respond("⚠️ Не вдалося завантажити дані. CoinGecko API тимчасово недоступне. Спробуйте через хвилину.")
+                    return
+
+                market_data = await self.analytics.get_market_data()
+                forecast = await self.analytics.get_forecast()
+                logger.info(f"Analytics callback - forecast: {forecast}")
+                
+                chart_data = await self.analytics.get_btc_data(days=14)
+
+                message = self.analytics.format_analytics_message(price_data, market_data, forecast)
+
+                # ASCII график
+                if chart_data and price_data:
+                    prices = chart_data.get('prices', [])
+                    current = price_data.get('price', 0)
+                    chart = create_price_chart(prices, current)
+                    if chart:
+                        message += f"\n\n<b>График цены (14 дней):</b>\n<code>{chart}</code>"
+
+                await event.respond(message, parse_mode='html')
+
+                if price_data:
+                    today = datetime.now().date().isoformat()
+                    sentiment = self.analytics.calculate_sentiment(price_data, market_data)
+                    self.db.add_analytics(today, price_data.get('price', 0), price_data.get('change_24h', 0), sentiment)
+
+                await event.answer("✅")
+                
+            except Exception as e:
+                logger.error(f"Analytics callback error: {e}")
+                await event.respond(f"⚠️ Помилка: {e}. Спробуйте пізніше.")
+
         elif data == 'forecast':
             await event.answer("🔮 Формирую прогноз...")
-            
-            forecast_1h = await self.analytics.get_forecast(hours=1)
-            forecast_1d = await self.analytics.get_forecast(days=1)
-            forecast_1w = await self.analytics.get_forecast(days=7)
-            forecast_1m = await self.analytics.get_forecast(days=30)
-            forecast_1y = await self.analytics.get_forecast(days=365)
-            
-            if not forecast_1d:
-                await event.respond("❌ Не удалось сформировать прогноз. Попробуйте позже.")
-                await event.answer("Ошибка")
-                return
-            
-            current_price = forecast_1d.get('current_price', 0)
-            
-            message = f"🔮 <b>Прогноз курса Bitcoin</b>\n\n"
-            message += f"💰 <b>Текущая цена: ${current_price:,.2f}</b>\n\n"
-            
-            if forecast_1h:
-                trend_1h = forecast_1h.get('trend', 'unknown')
-                proj_1h = forecast_1h.get('projected_price', current_price)
-                trend_emoji = "📈" if trend_1h == 'upward' else "📉"
-                message += f"⏰ <b>1 час:</b> {trend_emoji} ${proj_1h:,.2f} ({trend_1h.title()})\n"
-            
-            if forecast_1d:
-                trend_1d = forecast_1d.get('trend', 'unknown')
-                proj_1d = forecast_1d.get('projected_price', current_price)
-                trend_emoji = "📈" if trend_1d == 'upward' else "📉"
-                message += f"📅 <b>1 день:</b> {trend_emoji} ${proj_1d:,.2f} ({trend_1d.title()})\n"
-            
-            if forecast_1w:
-                trend_1w = forecast_1w.get('trend', 'unknown')
-                proj_1w = forecast_1w.get('projected_price', current_price)
-                trend_emoji = "📈" if trend_1w == 'upward' else "📉"
-                message += f"📆 <b>1 неделя:</b> {trend_emoji} ${proj_1w:,.2f} ({trend_1w.title()})\n"
-            
-            if forecast_1m:
-                trend_1m = forecast_1m.get('trend', 'unknown')
-                proj_1m = forecast_1m.get('projected_price', current_price)
-                trend_emoji = "📈" if trend_1m == 'upward' else "📉"
-                message += f"🗓️ <b>1 месяц:</b> {trend_emoji} ${proj_1m:,.2f} ({trend_1m.title()})\n"
-            
-            if forecast_1y:
-                trend_1y = forecast_1y.get('trend', 'unknown')
-                proj_1y = forecast_1y.get('projected_price', current_price)
-                trend_emoji = "📈" if trend_1y == 'upward' else "📉"
-                message += f"📊 <b>1 год:</b> {trend_emoji} ${proj_1y:,.2f} ({trend_1y.title()})\n"
-            
-            message += (
-                f"\n⚠️ <i>Это не финансовая рекомендация.</i>\n"
-                f"⏰ {datetime.now().strftime('%Y-%m-%d %H:%M')}"
-            )
-            
-            await event.respond(message, parse_mode='html')
-            await event.answer("✅")
-            
+
+            try:
+                forecast_1h = await self.analytics.get_forecast(hours=1)
+                logger.info(f"Forecast callback 1h: {forecast_1h}")
+                
+                forecast_1d = await self.analytics.get_forecast(days=1)
+                logger.info(f"Forecast callback 1d: {forecast_1d}")
+                
+                # Якщо немає даних - спробуємо ще раз
+                if not forecast_1d:
+                    await asyncio.sleep(2)
+                    forecast_1d = await self.analytics.get_forecast(days=1)
+                
+                if not forecast_1d:
+                    # Повертаємо хоча б поточну ціну
+                    price_data = await self.analytics.get_btc_price()
+                    if price_data:
+                        current_price = price_data.get('price', 0)
+                        message = (
+                            f"🔮 <b>Прогноз курса Bitcoin</b>\n\n"
+                            f"💰 <b>Текущая цена: ${current_price:,.2f}</b>\n\n"
+                            f"⚠️ <i>Прогноз тимчасово недоступний. Спробуйте через кілька хвилин.</i>\n"
+                            f"⏰ {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+                        )
+                        await event.respond(message, parse_mode='html')
+                        await event.answer("✅")
+                        return
+                    else:
+                        await event.respond("❌ Не вдалося завантажити дані. Спробуйте пізніше.")
+                        return
+
+                forecast_1w = await self.analytics.get_forecast(days=7)
+                forecast_1m = await self.analytics.get_forecast(days=30)
+                forecast_1y = await self.analytics.get_forecast(days=365)
+
+                current_price = forecast_1d.get('current_price', 0)
+
+                message = f"🔮 <b>Прогноз курса Bitcoin</b>\n\n"
+                message += f"💰 <b>Текущая цена: ${current_price:,.2f}</b>\n\n"
+
+                if forecast_1h:
+                    trend_1h = forecast_1h.get('trend', 'unknown')
+                    proj_1h = forecast_1h.get('projected_price', current_price)
+                    trend_emoji = "📈" if trend_1h == 'upward' else "📉" if trend_1h == 'downward' else "➡️"
+                    message += f"⏰ <b>1 час:</b> {trend_emoji} ${proj_1h:,.2f} ({trend_1h.title()})\n"
+
+                if forecast_1d:
+                    trend_1d = forecast_1d.get('trend', 'unknown')
+                    proj_1d = forecast_1d.get('projected_price', current_price)
+                    trend_emoji = "📈" if trend_1d == 'upward' else "📉" if trend_1d == 'downward' else "➡️"
+                    message += f"📅 <b>1 день:</b> {trend_emoji} ${proj_1d:,.2f} ({trend_1d.title()})\n"
+
+                if forecast_1w:
+                    trend_1w = forecast_1w.get('trend', 'unknown')
+                    proj_1w = forecast_1w.get('projected_price', current_price)
+                    trend_emoji = "📈" if trend_1w == 'upward' else "📉" if trend_1w == 'downward' else "➡️"
+                    message += f"📆 <b>1 неделя:</b> {trend_emoji} ${proj_1w:,.2f} ({trend_1w.title()})\n"
+
+                if forecast_1m:
+                    trend_1m = forecast_1m.get('trend', 'unknown')
+                    proj_1m = forecast_1m.get('projected_price', current_price)
+                    trend_emoji = "📈" if trend_1m == 'upward' else "📉" if trend_1m == 'downward' else "➡️"
+                    message += f"🗓️ <b>1 месяц:</b> {trend_emoji} ${proj_1m:,.2f} ({trend_1m.title()})\n"
+
+                if forecast_1y:
+                    trend_1y = forecast_1y.get('trend', 'unknown')
+                    proj_1y = forecast_1y.get('projected_price', current_price)
+                    trend_emoji = "📈" if trend_1y == 'upward' else "📉" if trend_1y == 'downward' else "➡️"
+                    message += f"📊 <b>1 год:</b> {trend_emoji} ${proj_1y:,.2f} ({trend_1y.title()})\n"
+
+                message += (
+                    f"\n⚠️ <i>Это не финансовая рекомендация.</i>\n"
+                    f"⏰ {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+                )
+
+                await event.respond(message, parse_mode='html')
+                await event.answer("✅")
+                
+            except Exception as e:
+                logger.error(f"Forecast callback error: {e}")
+                await event.respond(f"⚠️ Помилка: {e}. Спробуйте пізніше.")
+
         elif data == 'news':
             await event.answer("📰 Загружаю новости...")
 
